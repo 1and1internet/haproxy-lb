@@ -1,0 +1,249 @@
+apiVersion: template.openshift.io/v1
+kind: Template
+metadata:
+  creationTimestamp: null
+  name: haproxy
+objects:
+- apiVersion: apps.openshift.io/v1
+  kind: DeploymentConfig
+  metadata:
+    annotations:
+      openshift.io/generated-by: OpenShiftNewApp
+    creationTimestamp: null
+    generation: 29
+    labels:
+      app: haproxy
+    name: haproxy
+  spec:
+    replicas: 2
+    revisionHistoryLimit: 10
+    selector:
+      app: haproxy
+      deploymentconfig: haproxy
+    strategy:
+      activeDeadlineSeconds: 21600
+      resources: {}
+      rollingParams:
+        intervalSeconds: 1
+        maxSurge: 25%
+        maxUnavailable: 25%
+        timeoutSeconds: 600
+        updatePeriodSeconds: 1
+      type: Rolling
+    template:
+      metadata:
+        annotations:
+          openshift.io/generated-by: OpenShiftNewApp
+        creationTimestamp: null
+        labels:
+          app: haproxy
+          deploymentconfig: haproxy
+      spec:
+        containers:
+        - env:
+          - name: LBHOST1
+            value: 10.84.8.19
+          - name: LBHOST2
+            value: 10.84.8.20
+          - name: LBMETHOD
+            value: roundrobin
+          image: jameswilkins/haproxy@sha256:64e8aa4ddaeec777c7c92fc857b983b35cf0ad4e9a4b5d4732cc06ab6701724d
+          imagePullPolicy: Always
+          livenessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /_______internal_router_healthz
+              port: 80
+              scheme: HTTP
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          name: haproxy
+          ports:
+          - containerPort: 80
+            protocol: TCP
+          - containerPort: 1936
+            protocol: TCP
+          readinessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /_______internal_router_healthz
+              port: 80
+              scheme: HTTP
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/haproxy
+            name: haproxy-volume
+        dnsPolicy: ClusterFirst
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        terminationGracePeriodSeconds: 30
+        volumes:
+        - configMap:
+            defaultMode: 420
+            name: haproxy-config
+          name: haproxy-volume
+    test: false
+    triggers:
+    - type: ConfigChange
+    - imageChangeParams:
+        automatic: true
+        containerNames:
+        - haproxy
+        from:
+          kind: ImageStreamTag
+          name: haproxy:latest
+          namespace: networks-haproxy
+        lastTriggeredImage: jameswilkins/haproxy@sha256:64e8aa4ddaeec777c7c92fc857b983b35cf0ad4e9a4b5d4732cc06ab6701724d
+      type: ImageChange
+  status:
+    availableReplicas: 0
+    latestVersion: 0
+    observedGeneration: 0
+    replicas: 0
+    unavailableReplicas: 0
+    updatedReplicas: 0
+- apiVersion: v1
+  kind: Service
+  metadata:
+    creationTimestamp: null
+    name: haproxy-stats
+  spec:
+    ports:
+    - port: 80
+      protocol: TCP
+      targetPort: 1936
+    selector:
+      app: haproxy
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+- apiVersion: v1
+  kind: Service
+  metadata:
+    creationTimestamp: null
+    name: haproxy-svc
+  spec:
+    externalIPs:
+    - 10.84.13.8
+    ports:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: 80
+    selector:
+      app: haproxy
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+- apiVersion: autoscaling/v1
+  kind: HorizontalPodAutoscaler
+  metadata:
+    annotations:
+      autoscaling.alpha.kubernetes.io/conditions: '[{"type":"AbleToScale","status":"True","lastTransitionTime":"2018-12-04T11:00:04Z","reason":"ReadyForNewScale","message":"the
+        last scale time was sufficiently old as to warrant a new scale"},{"type":"ScalingActive","status":"True","lastTransitionTime":"2018-12-05T12:10:36Z","reason":"ValidMetricFound","message":"the
+        HPA was able to succesfully calculate a replica count from cpu resource utilization
+        (percentage of request)"},{"type":"ScalingLimited","status":"True","lastTransitionTime":"2018-12-05T12:10:36Z","reason":"TooFewReplicas","message":"the
+        desired replica count is increasing faster than the maximum scale rate"}]'
+      autoscaling.alpha.kubernetes.io/current-metrics: '[{"type":"Resource","resource":{"name":"cpu","currentAverageUtilization":0,"currentAverageValue":"0"}}]'
+    creationTimestamp: null
+    labels:
+      app: haproxy
+    name: haproxy
+  spec:
+    maxReplicas: 20
+    minReplicas: 2
+    scaleTargetRef:
+      apiVersion: v1
+      kind: DeploymentConfig
+      name: haproxy
+    targetCPUUtilizationPercentage: 5
+  status:
+    currentCPUUtilizationPercentage: 0
+    currentReplicas: 2
+    desiredReplicas: 2
+    lastScaleTime: 2018-12-04T10:55:04Z
+- apiVersion: route.openshift.io/v1
+  kind: Route
+  metadata:
+    annotations:
+      openshift.io/host.generated: "true"
+    creationTimestamp: null
+    name: stats
+  spec:
+    host: stats-networks-haproxy.qacaas.bs.kae.de.iplatform.1and1.org
+    tls:
+      termination: edge
+    to:
+      kind: Service
+      name: haproxy-stats
+      weight: 100
+    wildcardPolicy: None
+  status:
+    ingress:
+    - conditions:
+      - lastTransitionTime: 2018-12-03T12:59:59Z
+        status: "True"
+        type: Admitted
+      host: stats-networks-haproxy.qacaas.bs.kae.de.iplatform.1and1.org
+      routerName: router
+      wildcardPolicy: None
+- apiVersion: networking.k8s.io/v1
+  kind: NetworkPolicy
+  metadata:
+    creationTimestamp: null
+    generation: 1
+    name: allow-all-local-ns
+  spec:
+    ingress:
+    - from:
+      - podSelector: {}
+    podSelector: {}
+    policyTypes:
+    - Ingress
+- apiVersion: networking.k8s.io/v1
+  kind: NetworkPolicy
+  metadata:
+    creationTimestamp: null
+    generation: 1
+    name: allow-routes
+  spec:
+    ingress:
+    - from:
+      - namespaceSelector:
+          matchLabels:
+            name: default
+    podSelector: {}
+    policyTypes:
+    - Ingress
+- apiVersion: v1
+  data:
+    haproxy.cfg: "global\n  maxconn                   20\n  log                       127.0.0.1
+      \      local0  debug\n  # Increase the default request size to be comparable
+      to modern cloud load balancers (ALB: 64kb), affects\n  # total memory use when
+      large numbers of connections are open.\n  tune.maxrewrite 8192\n  tune.bufsize
+      32768\n\n\ndefaults\n  log                       global\n  mode                      http\n
+      \ option                    httplog\n  retries                   3\n  option
+      \                   redispatch\n  timeout connect 5s\n  timeout client 30s\n
+      \ timeout client-fin 1s\n  timeout server 30s\n  timeout server-fin 1s\n  timeout
+      http-request 10s\n  timeout http-keep-alive 300s\n\n  # Long timeout for WebSocket
+      connections.\n  timeout tunnel 1h\n  option                    httpchk\n\nfrontend
+      \       http\n  bind                      :80\n  default_backend           backend_default\n
+      \ monitor-uri /_______internal_router_healthz\n\nbackend         backend_default\n
+      \ balance                   \"${LBMETHOD}\"\n  server                    www1
+      \"${LBHOST1}\":80\n  server                    www2 \"${LBHOST2}\":80\n\nlisten
+      stats\n  bind :1936\n  mode http\n  stats enable\n  stats uri /\n  \n  \n"
+  kind: ConfigMap
+  metadata:
+    creationTimestamp: null
+    name: haproxy-config
